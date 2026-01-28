@@ -10,3 +10,6 @@ wheels/
 .venv
 credentials.json
 token.json
+unread_messages_debug_*.json
+jobs_debug_*.json
+body_debug.html
