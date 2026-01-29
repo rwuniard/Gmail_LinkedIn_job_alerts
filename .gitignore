@@ -8,8 +8,26 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables (contains sensitive config)
+.env
+
+# Sensitive credentials
 credentials.json
 token.json
+
+# Debug files
 unread_messages_debug_*.json
+messages_debug_*.json
+message_debug_*.json
 jobs_debug_*.json
 body_debug.html
+Body_debug.html
+Text_body.html
+
+# Log files
+*.log
+gmail_client.log
+
+# Old logger backup
+logger_config_old.py

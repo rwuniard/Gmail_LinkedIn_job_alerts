@@ -1,4 +1,7 @@
 import os
+import json
+import logging
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -9,38 +12,61 @@ import re
 from typing import List
 from bs4 import BeautifulSoup
 from models.linkedin import Job, LinkedInJobAlert
+from logger_config import setup_logging
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Setup logging with configuration from .env (now using python-json-logger)
+setup_logging()
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
+
 
 class GmailClient:
-
-    
 
     def __init__(self, scopes):
         self.credentials = None
         self.read_only_scopes = scopes
+        logger.info("GmailClient initialized", extra={'scopes': scopes})
 
 
     def authenticate(self):
+        """Authenticate with Gmail API using OAuth2."""
+        logger.info("Starting authentication process")
+        
         # The file token.json stores the user's access and refresh tokens, and is
         # created automatically when the authorization flow completes for the first
         # time.
         if os.path.exists("token.json"):
             self.credentials = Credentials.from_authorized_user_file("token.json", self.read_only_scopes)
+            logger.debug("Credentials loaded from token.json")
+        
         # If there are no (valid) credentials available, let the user log in.
         if not self.credentials or not self.credentials.valid:
             if self.credentials and self.credentials.expired and self.credentials.refresh_token:
+                logger.info("Refreshing expired credentials")
                 self.credentials.refresh(Request())
+                logger.debug("Credentials refreshed successfully")
             else:
+                logger.info("Running OAuth flow for new credentials")
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", self.READ_ONLY_SCOPES
+                    "credentials.json", self.read_only_scopes
                 )
                 self.credentials = flow.run_local_server(port=0)
+                
                 # Save the credentials for the next run
                 with open("token.json", "w") as token:
                     token.write(self.credentials.to_json())
+                logger.info("New credentials created and saved to token.json")
+        
+        logger.info("Authentication successful")
 
 
     def __parse_jobs_from_body(self, body: str) -> List[Job]:
         """Parse job listings from LinkedIn Job Alert plain text email body."""
+        logger.debug("Parsing jobs from email body", extra={'body_length': len(body)})
         jobs = []
         
         # Split by the separator line
@@ -73,6 +99,8 @@ class GmailClient:
                 company = job_lines[1]
                 location = job_lines[2]
                 
+                logger.debug("Found job", extra={'title': title, 'company': company, 'location': location})
+                
                 jobs.append(Job(
                     title=title,
                     company=company,
@@ -80,7 +108,9 @@ class GmailClient:
                     url=url.split('?')[0]  # Clean URL, remove tracking params
                 ))
         
+        logger.debug(f"jobs:\n {jobs}")
         return jobs
+
 
     def __get_message_body(self, payload):
         """
@@ -102,12 +132,14 @@ class GmailClient:
                 mime_type = part.get("mimeType", "")
                 
                 if mime_type == "text/plain":
+                    print(f"Found plain text part: {mime_type}")
                     # Prefer plain text
                     data = part["body"].get("data", "")
                     if data:
                         body = base64.urlsafe_b64decode(data).decode("utf-8")
                         break
                 elif mime_type == "text/html" and not body:
+                    print(f"Found HTML part: {mime_type}")
                     # Fall back to HTML if no plain text
                     data = part["body"].get("data", "")
                     if data:
@@ -117,6 +149,7 @@ class GmailClient:
                     body = self.__get_message_body(part)
                     if body:
                         break
+        logger.debug(f"body:\n {body}")
         return body
 
 
@@ -129,6 +162,8 @@ class GmailClient:
         Returns:
             A list of unread messages that are from LinkedIn Job Alerts.
         """
+        logger.info("Fetching unread LinkedIn Job Alerts", extra={'max_results': max_results})
+        
         try:
             service = build("gmail", "v1", credentials=self.credentials)
             results = service.users().messages().list(
@@ -138,27 +173,39 @@ class GmailClient:
             ).execute()
             
             messages = results.get("messages", [])
+            logger.info(f"Found {len(messages)} unread messages", extra={'message_count': len(messages)})
             
             if not messages:
-                print("No unread messages.")
+                logger.warning("No unread messages found")
                 return []
-            
+
             unread = []
-            for msg in messages:
+            for i, msg in enumerate(messages, 1):
+                logger.debug(
+                    f"Processing message {i}/{len(messages)}",
+                    extra={'message_num': i, 'total_messages': len(messages), 'message_id': msg["id"]}
+                )
+                
                 message = service.users().messages().get(
                     userId="me",
                     id=msg["id"],
                     format="full",
                     metadataHeaders=["Subject", "From", "Date"]
                 ).execute()
-                
 
                 headers = {h["name"]: h["value"] for h in message["payload"]["headers"]}
                 body = self.__get_message_body(message["payload"])
-
+                
                 if "LinkedIn Job Alerts" in headers.get("From", ""):
-                    with open("body_debug.html", "w") as f:
-                        f.write(body)
+                    logger.info(
+                        "Processing LinkedIn Job Alert",
+                        extra={
+                            'message_id': msg["id"],
+                            'subject': headers.get("Subject", ""),
+                            'sender': headers.get("From", "")
+                        }
+                    )
+                    
                     jobs = self.__parse_jobs_from_body(body)
                 
                     alert = LinkedInJobAlert(
@@ -172,10 +219,26 @@ class GmailClient:
                 
                     unread.append(alert)
                 else:
-                    print(f"Message from {headers.get('From', '')} is not from LinkedIn Job Alerts")
+                    logger.debug(
+                        "Skipping non-LinkedIn message",
+                        extra={'message_id': msg["id"], 'sender': headers.get('From', '')}
+                    )
+            
+            logger.info(
+                "Completed processing LinkedIn Job Alerts",
+                extra={
+                    'total_alerts': len(unread),
+                    'total_jobs': sum(len(alert.jobs) for alert in unread)
+                }
+            )
             return unread
+            
         except HttpError as error:
-            print(f"An error occurred: {error}")
+            logger.error(
+                "Gmail API error occurred",
+                extra={'error_status': error.resp.status if hasattr(error, 'resp') else 'unknown'},
+                exc_info=True
+            )
             return None
 
 
@@ -193,30 +256,3 @@ if __name__ == "__main__":
         print("--------------------------------")
 
 
-# #
-#   try:
-#     # Call the Gmail API
-#     service = build("gmail", "v1", credentials=creds)
-#     results = service.users().labels().list(userId="me").execute()
-#     labels = results.get("labels", [])
-
-#     if not labels:
-#       print("No labels found.")
-#       return
-#     print("Labels:")
-#     for label in labels:
-#       print(label["name"])
-
-#     print("--------------------------------")
-#     print("Getting unread messages...")
-#     unread_messages = get_unread_messages_from_LinkedIn_JobAlerts(service, max_results=20)
-#     print("Unread messages:")
-#     for msg in unread_messages:
-#       print(msg["subject"])
-#       print(msg["snippet"])
-#       print(msg["body"])
-#       print("--------------------------------")
-
-#   except HttpError as error:
-#     # TODO(developer) - Handle errors from gmail API.
-#     print(f"An error occurred: {error}")
