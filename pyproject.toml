@@ -12,4 +12,5 @@ dependencies = [
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
     "python-json-logger>=4.0.0",
+    "stomp-py>=8.2.0",
 ]

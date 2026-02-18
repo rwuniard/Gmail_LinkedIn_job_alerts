@@ -23,7 +23,8 @@ class Log:
     ENV_LOG_LEVEL = 'LOG_LEVEL'
     ENV_LOG_FORMAT = 'LOG_FORMAT'  # 'json', 'text', or 'dual'
     ENV_ENVIRONMENT = 'ENVIRONMENT'  # 'development' or 'production'
-    
+    _configured = False
+
     def __init__(
         self,
         log_level: Optional[str] = None,
@@ -46,8 +47,6 @@ class Log:
         self.log_format = self._get_log_format(log_format)
         self.environment = environment or os.getenv(self.ENV_ENVIRONMENT, 'development')
         
-        # Track if logging has been configured
-        self._configured = False
     
     def _get_log_level(self, level: Optional[str]) -> int:
         """Get logging level from parameter or environment."""
@@ -71,8 +70,9 @@ class Log:
         """
         Configure logging based on settings.
         """
-        if self._configured:
+        if Log._configured:
             return
+        Log._configured = True
         
         # Get root logger
         root_logger = logging.getLogger()
