@@ -23,9 +23,7 @@ message_debug_*.json
 jobs_debug_*.json
 body_debug.html
 Body_debug.html
-Text_body.html
-
-# Log files
+Text_body.html# Log files
 *.log
 gmail_client.log# Old logger backup
 logger_config_old.py

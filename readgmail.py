@@ -207,13 +207,15 @@ class GmailClient:
                     )
                     
                     jobs = self.__parse_jobs_from_body(body)
-                
+                    snippet = message.get("snippet", "")
+                    # Clean the snippet of any unicode characters
+                    cleaned_snippet = re.sub(r'[\u034f\u200b\u200c\u200d\u00a0]+', '', snippet).strip()
                     alert = LinkedInJobAlert(
                         id=msg["id"],
                         subject=headers.get("Subject", ""),
                         sender=headers.get("From", ""),
                         date=headers.get("Date", ""),
-                        snippet=message.get("snippet", ""),
+                        snippet=cleaned_snippet,
                         jobs=jobs
                     )
                 
