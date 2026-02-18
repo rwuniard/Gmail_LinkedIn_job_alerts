@@ -85,7 +85,7 @@ Test the logging configuration:
 
 ```bash
 # Test JSON logging with different log levels
-uv run python example_logging.py
+uv run python logger/example_logging.py
 ```
 
 ## Example Output
@@ -121,11 +121,14 @@ The application outputs structured JSON for each LinkedIn Job Alert email:
 ```
 gmail_quickstart/
 ├── models/
+│   ├── __init__.py              # Re-exports Job, LinkedInJobAlert
 │   └── linkedin.py              # Pydantic models (Job, LinkedInJobAlert)
-├── logger_config.py             # Logging configuration with python-json-logger
+├── logger/
+│   ├── __init__.py              # Re-exports setup_logging
+│   ├── logger_config.py         # Logging configuration with python-json-logger
+│   └── example_logging.py       # Example demonstrating logging usage
 ├── readgmail.py                 # Main GmailClient class
 ├── quickstart.py                # Original Gmail API quickstart example
-├── example_logging.py           # Example demonstrating logging usage
 ├── .env                         # Environment variables (create from .env.example)
 ├── .env.example                 # Example environment configuration
 ├── credentials.json             # OAuth client credentials (from Google Cloud)
