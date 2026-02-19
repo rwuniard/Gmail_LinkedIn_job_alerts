@@ -42,7 +42,7 @@ class Log:
             environment: 'development' or 'production'.
                         If None, reads from ENVIRONMENT env var (default: 'development')
         """
-        # Load environment variables
+        # Load environment variables from the .env file if the arguments are not provided
         self.log_level = self._get_log_level(log_level)
         self.log_format = self._get_log_format(log_format)
         self.environment = environment or os.getenv(self.ENV_ENVIRONMENT, 'development')
