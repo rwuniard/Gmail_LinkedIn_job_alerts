@@ -168,7 +168,7 @@ class GmailClient:
             service = build("gmail", "v1", credentials=self.credentials)
             results = service.users().messages().list(
                 userId="me",
-                q="is:unread",
+                q="is:unread (from:jobs-noreply@linkedin.com OR from:jobalerts-noreply@linkedin.com OR from:jobs-listings@linkedin.com OR from:\"LinkedIn Job Alerts\")",
                 maxResults=max_results
             ).execute()
             
@@ -196,7 +196,9 @@ class GmailClient:
                 headers = {h["name"]: h["value"] for h in message["payload"]["headers"]}
                 body = self.__get_message_body(message["payload"])
                 
-                if "LinkedIn Job Alerts" in headers.get("From", ""):
+                LINKEDIN_SENDERS = {"LinkedIn Job Alerts", "jobs-noreply@linkedin.com", "jobalerts-noreply@linkedin.com", "jobs-listings@linkedin.com"}
+                sender = headers.get("From", "")
+                if any(s in sender for s in LINKEDIN_SENDERS):
                     logger.info(
                         "Processing LinkedIn Job Alert",
                         extra={
