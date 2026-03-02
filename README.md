@@ -5,7 +5,7 @@ A Python application that uses the Gmail API to read LinkedIn Job Alert emails a
 ## Features
 
 - OAuth2 authentication with Google Gmail API
-- Fetch unread LinkedIn Job Alert emails
+- Fetch unread emails from multiple LinkedIn job alert sender addresses
 - Parse job listings from email body (title, company, location, URL)
 - Structured JSON output using Pydantic models
 - Production-ready logging with **python-json-logger**
@@ -36,12 +36,12 @@ A Python application that uses the Gmail API to read LinkedIn Job Alert emails a
 
    Or add dependencies individually:
    ```bash
-   uv add google-api-python-client google-auth-httplib2 google-auth-oauthlib pydantic beautifulsoup4 python-dotenv python-json-logger
+   uv add google-api-python-client google-auth-httplib2 google-auth-oauthlib pydantic beautifulsoup4 python-dotenv python-json-logger python-qpid-proton
    ```
 
    Or with pip:
    ```bash
-   pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib pydantic beautifulsoup4 python-dotenv python-json-logger
+   pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib pydantic beautifulsoup4 python-dotenv python-json-logger python-qpid-proton
    ```
 
 3. Configure logging (optional):
@@ -119,7 +119,7 @@ The application outputs structured JSON for each LinkedIn Job Alert email:
 ## Project Structure
 
 ```
-gmail_quickstart/
+gmail_linkedin_job_alerts/
 ├── models/
 │   ├── __init__.py              # Re-exports Job, LinkedInJobAlert
 │   └── linkedin.py              # Pydantic models (Job, LinkedInJobAlert)
@@ -129,7 +129,7 @@ gmail_quickstart/
 │   └── example_logging.py       # Example demonstrating logging usage
 ├── messaging/
 │   ├── __init__.py              # Messaging package
-│   └── producer.py              # ActiveMQ STOMP producer (sends job alerts to queue)
+│   └── producer.py              # ActiveMQ AMQP producer (sends job alerts to queue)
 ├── activeMQ deployment script/
 │   └── deploy_activeMQ_docker.sh  # Script to run ActiveMQ Artemis in Docker
 ├── readgmail.py                 # Main GmailClient class
@@ -165,7 +165,7 @@ Represents a parsed LinkedIn Job Alert email:
 
 ## Messaging (ActiveMQ)
 
-Parsed job alerts are sent to an ActiveMQ queue using the STOMP protocol via the `messaging` package.
+Parsed job alerts are sent to an ActiveMQ queue using the **AMQP** protocol via the `messaging` package.
 
 ### Producer
 
@@ -179,7 +179,8 @@ producer = Producer(
     port=int(os.getenv('PORT')),
     username=os.getenv('USERNAME'),
     password=os.getenv('PASSWORD'),
-    destination=os.getenv('DESTINATION')
+    address=os.getenv('ADDRESS'),
+    queue=os.getenv('QUEUE')
 )
 producer.send_message(json_payload)
 producer.close_connection()
@@ -201,12 +202,12 @@ bash "activeMQ deployment script/deploy_activeMQ_docker.sh"
 This runs:
 ```bash
 docker pull apache/activemq-artemis
-docker run -d --name activemq-artemis -p 61616:61616 -p 8161:8161 apache/activemq-artemis
+docker run -d --name activemq-artemis -p 5672:5672 -p 8161:8161 apache/activemq-artemis
 ```
 
 | Port | Purpose |
 |------|---------|
-| `61616` | STOMP/messaging protocol |
+| `5672` | AMQP messaging protocol |
 | `8161` | Web console (`http://localhost:8161`) |
 
 Default credentials for the web console: `artemis` / `artemis`
@@ -217,10 +218,11 @@ Add to your `.env`:
 
 ```bash
 HOST=localhost
-PORT=61616
+PORT=5672
 USERNAME=artemis
 PASSWORD=artemis
-DESTINATION=/queue/linkedin_jobs
+ADDRESS=linkedin_jobs
+QUEUE=linkedin_jobs
 ```
 
 ## Configuration
@@ -278,8 +280,6 @@ ENVIRONMENT=development # development or production
 
 **Documentation:**
 - [LOGGING_USAGE.md](LOGGING_USAGE.md) - Complete logging guide and best practices
-- [MIGRATION_COMPLETE.md](MIGRATION_COMPLETE.md) - Summary of python-json-logger migration
-- [MIGRATION_TO_JSON_LOGGER.md](MIGRATION_TO_JSON_LOGGER.md) - Detailed migration guide
 
 ## Dependencies
 
@@ -292,92 +292,13 @@ ENVIRONMENT=development # development or production
 | `beautifulsoup4` | HTML parsing (optional, for HTML emails) |
 | `python-dotenv` | Load environment variables from .env file |
 | `python-json-logger` | Production-ready structured JSON logging |
+| `python-qpid-proton` | AMQP 1.0 messaging client for ActiveMQ |
 
 ## Security Notes
 
 - Never commit `credentials.json` or `token.json` to version control
 - Add them to `.gitignore`
 - The `token.json` contains sensitive refresh tokens that grant access to your Gmail
-
-## Deploying to Kubernetes
-
-For headless/background service deployment:
-
-### 1. Prepare Credentials
-
-Generate `token.json` locally by running the app once:
-
-```bash
-uv run python readgmail.py
-```
-
-### 2. Create Kubernetes Secrets
-
-```bash
-# Gmail credentials
-kubectl create secret generic gmail-credentials \
-  --from-file=token.json \
-  --from-file=credentials.json
-
-# Environment configuration (optional)
-kubectl create configmap gmail-config \
-  --from-literal=LOG_LEVEL=INFO \
-  --from-literal=LOG_FORMAT=json \
-  --from-literal=ENVIRONMENT=production
-```
-
-### 3. Configure Your Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gmail-client
-spec:
-  replicas: 1
-  template:
-    spec:
-      containers:
-      - name: app
-        image: gmail-client:latest
-        env:
-        - name: LOG_LEVEL
-          valueFrom:
-            configMapKeyRef:
-              name: gmail-config
-              key: LOG_LEVEL
-        - name: LOG_FORMAT
-          valueFrom:
-            configMapKeyRef:
-              name: gmail-config
-              key: LOG_FORMAT
-        - name: ENVIRONMENT
-          valueFrom:
-            configMapKeyRef:
-              name: gmail-config
-              key: ENVIRONMENT
-        volumeMounts:
-        - name: credentials
-          mountPath: /app/credentials.json
-          subPath: credentials.json
-        - name: credentials
-          mountPath: /app/token.json
-          subPath: token.json
-      volumes:
-      - name: credentials
-        secret:
-          secretName: gmail-credentials
-```
-
-The app automatically refreshes tokens, so as long as it runs periodically, credentials stay valid.
-
-### CloudWatch Integration
-
-Logs are automatically in JSON format (when `LOG_FORMAT=json`) and sent to stdout, making them compatible with:
-- AWS CloudWatch Container Insights
-- Fluentd/Fluent Bit
-- Kubernetes logging drivers
-- Any log aggregation system
 
 ## Troubleshooting
 
@@ -405,8 +326,7 @@ uv run python readgmail.py
 **Problem:** Script runs but finds no jobs
 
 **Solution:** Check that:
-- You have unread LinkedIn Job Alert emails
-- The sender is exactly `"LinkedIn Job Alerts"`
+- You have unread emails from a LinkedIn job alert sender (`jobalerts-noreply@linkedin.com`, `jobs-noreply@linkedin.com`, `jobs-listings@linkedin.com`, or `LinkedIn Job Alerts`)
 - Run with `LOG_LEVEL=DEBUG` to see detailed parsing info
 
 ### Logging Not Working
